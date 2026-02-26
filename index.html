@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Expense Tracker</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui;
+        background: #0f172a;
+        color: white;
+        display: flex;
+        justify-content: center;
+      }
+      .app {
+        width: 390px;
+        min-height: 100vh;
+        background: #1e293b;
+        padding: 20px;
+      }
+      input,
+      select,
+      button {
+        width: 100%;
+        padding: 12px;
+        margin-top: 10px;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+      }
+      input,
+      select {
+        background: #334155;
+        color: white;
+      }
+      button {
+        background: #22c55e;
+        color: black;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      .card {
+        background: #334155;
+        padding: 15px;
+        border-radius: 12px;
+        margin-top: 15px;
+      }
+      .balance {
+        font-size: 26px;
+        font-weight: bold;
+        color: #4ade80;
+      }
+      .expense {
+        border-bottom: 1px solid #475569;
+        padding: 6px 0;
+      }
+      .center {
+        text-align: center;
+      }
+      .totalBox {
+        margin-top: 10px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="app" id="app"></div>
+
+    <script>
+      let users = JSON.parse(localStorage.getItem("users") || "{}");
+      let currentUser = localStorage.getItem("currentUser");
+
+      function saveDB() {
+        localStorage.setItem("users", JSON.stringify(users));
+      }
+      function v(id) {
+        return document.getElementById(id).value;
+      }
+
+      // LOGIN
+      function showLogin() {
+        app.innerHTML = `
+<h2 class="center">AI Expense Tracker</h2>
+<input id="email" placeholder="Email">
+<input id="pass" type="password" placeholder="Password">
+<button onclick="register()">Register</button>
+<button onclick="login()">Login</button>`;
+      }
+
+      function register() {
+        let email = v("email"),
+          pass = v("pass");
+        if (!email || !pass) return alert("Enter details");
+        if (users[email]) return alert("User exists");
+        users[email] = { password: pass, balance: null, expenses: [] };
+        saveDB();
+        alert("Registered! Login now");
+      }
+
+      function login() {
+        let email = v("email"),
+          pass = v("pass");
+        if (!users[email] || users[email].password !== pass)
+          return alert("Wrong login");
+        currentUser = email;
+        localStorage.setItem("currentUser", email);
+        if (users[email].balance === null) askBalance();
+        else showApp();
+      }
+
+      function askBalance() {
+        app.innerHTML = `
+<h2>Welcome 👋</h2>
+<p>Enter starting balance</p>
+<input id="bal" type="number">
+<button onclick="saveBalance()">Start</button>`;
+      }
+
+      function saveBalance() {
+        let b = Number(v("bal"));
+        if (!b) return alert("Enter balance");
+        users[currentUser].balance = b;
+        saveDB();
+        showApp();
+      }
+
+      // MAIN UI
+      function showApp() {
+        let u = users[currentUser];
+
+        app.innerHTML = `
+<h2>${currentUser}</h2>
+
+<div class="card">
+<div>Balance</div>
+<div class="balance">₹${u.balance}</div>
+</div>
+
+<div class="card">
+<h3>Update Balance</h3>
+<input id="addMoney" type="number" placeholder="Add amount">
+<button onclick="updateBalance()">Add Money</button>
+</div>
+
+<div class="card">
+<h3>Add Expense</h3>
+<input id="amt" type="number" placeholder="Amount">
+<select id="cat">
+<option>Food</option>
+<option>Mess Bill</option>
+<option>Recharge</option>
+<option>Travel</option>
+<option>Snacks</option>
+<option>Other</option>
+</select>
+<input id="note" placeholder="Reason (if Other)">
+<button onclick="addExpense()">Spend</button>
+</div>
+
+<div class="card" id="list"></div>
+
+<div class="card">
+<canvas id="graph"></canvas>
+<div class="totalBox" id="totals"></div>
+</div>
+
+<div class="card" id="ai"></div>
+
+<div class="card">
+<input type="date" id="clearDate">
+<button onclick="clearSelectedDate()">Clear Selected Date</button>
+</div>
+
+<div class="card">
+<button onclick="exportPDF()">📄 Download Monthly Report</button>
+</div>
+
+<button onclick="logout()">Logout</button>
+`;
+
+        showHistory();
+        drawGraph();
+        showTotals();
+        aiAdvice();
+      }
+
+      // UPDATE BALANCE
+      function updateBalance() {
+        let add = Number(v("addMoney"));
+        if (!add) return alert("Enter amount");
+        users[currentUser].balance += add;
+        saveDB();
+        showApp();
+      }
+
+      // ADD EXPENSE
+      function addExpense() {
+        let amt = Number(v("amt"));
+        let cat = v("cat");
+        let note = v("note");
+        let u = users[currentUser];
+
+        if (!amt) return alert("Enter amount");
+        if (amt > u.balance) return alert("Not enough balance!");
+
+        u.balance -= amt;
+        u.expenses.push({
+          amt,
+          cat,
+          note: cat === "Other" ? note : "",
+          date: new Date().toLocaleDateString(),
+        });
+
+        saveDB();
+        showApp();
+      }
+
+      // HISTORY
+      function showHistory() {
+        let u = users[currentUser];
+        let html = "<h3>History</h3>";
+        u.expenses
+          .slice()
+          .reverse()
+          .forEach((e) => {
+            html += `<div class="expense">${e.date} - ₹${e.amt} (${e.cat}) ${e.note}</div>`;
+          });
+        list.innerHTML = html || "No expenses";
+      }
+
+      // GRAPH
+      function drawGraph() {
+        let u = users[currentUser];
+        let catSum = {};
+        u.expenses.forEach(
+          (e) => (catSum[e.cat] = (catSum[e.cat] || 0) + e.amt)
+        );
+
+        new Chart(graph, {
+          type: "bar",
+          data: {
+            labels: Object.keys(catSum),
+            datasets: [{ label: "Spent", data: Object.values(catSum) }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } },
+          },
+        });
+      }
+
+      // TOTALS
+      function showTotals() {
+        let u = users[currentUser];
+        let catSum = {};
+        u.expenses.forEach(
+          (e) => (catSum[e.cat] = (catSum[e.cat] || 0) + e.amt)
+        );
+
+        let html = "<b>Category Totals:</b><br>";
+        Object.entries(catSum).forEach(([cat, val]) => {
+          html += `${cat} — ₹${val}<br>`;
+        });
+        totals.innerHTML = html;
+      }
+
+      // ⭐ SMART AI ASSISTANT
+      function aiAdvice() {
+        let u = users[currentUser];
+        if (!u.expenses.length) {
+          ai.innerHTML =
+            "<b>AI Assistant:</b><br>Add expenses to get insights.";
+          return;
+        }
+
+        // find highest category
+        let catSum = {};
+        u.expenses.forEach(
+          (e) => (catSum[e.cat] = (catSum[e.cat] || 0) + e.amt)
+        );
+        let highest = Object.keys(catSum).reduce((a, b) =>
+          catSum[a] > catSum[b] ? a : b
+        );
+
+        // different advice
+        let msg = "";
+
+        if (highest === "Food")
+          msg =
+            "🍔 You spend more on Food. Try hostel mess or weekly food budget.";
+        else if (highest === "Mess Bill")
+          msg = "🏠 Mess bill high. Consider reducing outside food.";
+        else if (highest === "Recharge")
+          msg = "📶 Recharge spending high. Use long-term data plans.";
+        else if (highest === "Travel")
+          msg = "🚌 Travel cost high. Try sharing rides or bus pass.";
+        else if (highest === "Snacks")
+          msg = "🍟 Snacks spending high. Fix a daily snack limit.";
+        else msg = "💡 Review small daily expenses to save more.";
+
+        if (u.balance < 500)
+          msg += "<br>⚠ Balance getting low. Spend carefully.";
+
+        ai.innerHTML = "<b>AI Assistant:</b><br>" + msg;
+      }
+
+      // CLEAR DATE
+      function clearSelectedDate() {
+        let d = document.getElementById("clearDate").value;
+        if (!d) return alert("Select date");
+        let formatted = new Date(d).toLocaleDateString();
+        users[currentUser].expenses = users[currentUser].expenses.filter(
+          (e) => e.date !== formatted
+        );
+        saveDB();
+        showApp();
+      }
+
+      // PDF
+      function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        let doc = new jsPDF();
+        let u = users[currentUser];
+        doc.text("Monthly Expense Report - " + currentUser, 20, 20);
+        let y = 30;
+        u.expenses.forEach((e) => {
+          doc.text(`${e.date} - ₹${e.amt} (${e.cat})`, 20, y);
+          y += 10;
+        });
+        doc.text("Balance: ₹" + u.balance, 20, y + 10);
+        doc.save(currentUser + "_expense_report.pdf");
+      }
+
+      // LOGOUT
+      function logout() {
+        localStorage.removeItem("currentUser");
+        location.reload();
+      }
+
+      // INIT
+      if (currentUser) showApp();
+      else showLogin();
+    </script>
+  </body>
+</html>
